@@ -1,5 +1,5 @@
-// @deno-types="npm:@types/leaflet@^1.9.14"
 import leaflet from "leaflet";
+import { Board, Cell } from "./board.ts";
 
 // Style sheets
 import "leaflet/dist/leaflet.css";
@@ -52,12 +52,15 @@ statusPanel.innerHTML = "No coins collected yet...";
 // Map to store the persistent state of each cache’s coin count
 const cacheData = new Map<string, number>();
 
+// Board instance for cell management
+const board = new Board(TILE_DEGREES, NEIGHBORHOOD_SIZE);
+
 // Function to initialize or retrieve a cache’s coin count
-function getCacheCoins(i: number, j: number): number {
-  const key = `${i},${j}`;
+function getCacheCoins(cell: Cell): number {
+  const key = `${cell.i},${cell.j}`;
   if (!cacheData.has(key)) {
     const initialCoins = Math.floor(
-      luck([i, j, "initialValue"].toString()) * 20,
+      luck([cell.i, cell.j, "initialValue"].toString()) * 20,
     );
     cacheData.set(key, initialCoins);
   }
@@ -65,22 +68,17 @@ function getCacheCoins(i: number, j: number): number {
 }
 
 // Spawn a cache at a specific grid location
-function spawnCache(i: number, j: number) {
-  const origin = OAKES_CLASSROOM;
-  const bounds = leaflet.latLngBounds([
-    [origin.lat + i * TILE_DEGREES, origin.lng + j * TILE_DEGREES],
-    [origin.lat + (i + 1) * TILE_DEGREES, origin.lng + (j + 1) * TILE_DEGREES],
-  ]);
+function spawnCache(cell: Cell) {
+  const bounds = board.getCellBounds(cell);
 
   const rect = leaflet.rectangle(bounds);
   rect.addTo(map);
 
   rect.bindPopup(() => {
-    let cacheCoins = getCacheCoins(i, j);
-
+    let cacheCoins = getCacheCoins(cell);
     const popupDiv = document.createElement("div");
     popupDiv.innerHTML = `
-    <div>Cache at "${i},${j}" contains <span id="coinCount">${cacheCoins}</span> coins.</div>
+    <div>Cache at "${cell.i},${cell.j}" contains <span id="coinCount">${cacheCoins}</span> coins.</div>
     <button id="collect" class="collect-button">Collect</button>
     <button id="deposit" class="deposit-button">Deposit</button>
   `;
@@ -92,7 +90,7 @@ function spawnCache(i: number, j: number) {
         if (cacheCoins > 0) {
           playerCoins += cacheCoins;
           cacheCoins = 0;
-          cacheData.set(`${i},${j}`, cacheCoins);
+          cacheData.set(`${cell.i},${cell.j}`, cacheCoins);
           popupDiv.querySelector<HTMLSpanElement>("#coinCount")!.innerHTML =
             cacheCoins.toString();
           statusPanel.innerHTML = `${playerCoins} coins collected`;
@@ -106,7 +104,7 @@ function spawnCache(i: number, j: number) {
         if (playerCoins > 0) {
           cacheCoins += playerCoins;
           playerCoins = 0;
-          cacheData.set(`${i},${j}`, cacheCoins);
+          cacheData.set(`${cell.i},${cell.j}`, cacheCoins);
           popupDiv.querySelector<HTMLSpanElement>("#coinCount")!.innerHTML =
             cacheCoins.toString();
           statusPanel.innerHTML = `${playerCoins} coins collected`;
@@ -120,8 +118,14 @@ function spawnCache(i: number, j: number) {
 // Generate caches around the player
 for (let i = -NEIGHBORHOOD_SIZE; i < NEIGHBORHOOD_SIZE; i++) {
   for (let j = -NEIGHBORHOOD_SIZE; j < NEIGHBORHOOD_SIZE; j++) {
-    if (luck([i, j].toString()) < CACHE_SPAWN_PROBABILITY) {
-      spawnCache(i, j);
+    const lat = OAKES_CLASSROOM.lat + i * TILE_DEGREES;
+    const lng = OAKES_CLASSROOM.lng + j * TILE_DEGREES;
+    const cellPoint = leaflet.latLng(lat, lng);
+
+    const cell = board.getCellForPoint(cellPoint);
+
+    if (luck([cell.i, cell.j].toString()) < CACHE_SPAWN_PROBABILITY) {
+      spawnCache(cell);
     }
   }
 }
