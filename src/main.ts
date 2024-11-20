@@ -113,6 +113,7 @@ function handleCollect(cache: Cache, popupDiv: HTMLElement) {
     popupDiv.querySelector<HTMLSpanElement>("#coinCount")!.innerHTML = cache
       .coins.toString();
     updateStatusPanel();
+    saveGameState();
   }
 }
 
@@ -125,6 +126,7 @@ function handleDeposit(cache: Cache, popupDiv: HTMLElement) {
     popupDiv.querySelector<HTMLSpanElement>("#coinCount")!.innerHTML = cache
       .coins.toString();
     updateStatusPanel();
+    saveGameState();
   }
 }
 
@@ -165,26 +167,126 @@ function movePlayer(latDelta: number, lngDelta: number) {
   const newLat = playerMarker.getLatLng().lat + latDelta;
   const newLng = playerMarker.getLatLng().lng + lngDelta;
   playerMarker.setLatLng([newLat, newLng]);
+  updateMovementHistory();
   regenerateCaches(playerMarker.getLatLng());
 }
 
-buttons.querySelector("#up")?.addEventListener(
-  "click",
-  () => movePlayer(CONFIG.TILE_DEGREES, 0),
-);
-buttons.querySelector("#down")?.addEventListener(
-  "click",
-  () => movePlayer(-CONFIG.TILE_DEGREES, 0),
-);
-buttons.querySelector("#left")?.addEventListener(
-  "click",
-  () => movePlayer(0, -CONFIG.TILE_DEGREES),
-);
-buttons.querySelector("#right")?.addEventListener(
-  "click",
-  () => movePlayer(0, CONFIG.TILE_DEGREES),
-);
+buttons
+  .querySelector("#up")
+  ?.addEventListener("click", () => movePlayer(CONFIG.TILE_DEGREES, 0));
+buttons
+  .querySelector("#down")
+  ?.addEventListener("click", () => movePlayer(-CONFIG.TILE_DEGREES, 0));
+buttons
+  .querySelector("#left")
+  ?.addEventListener("click", () => movePlayer(0, -CONFIG.TILE_DEGREES));
+buttons
+  .querySelector("#right")
+  ?.addEventListener("click", () => movePlayer(0, CONFIG.TILE_DEGREES));
 
 // Board instance
 const board = new Board(CONFIG.TILE_DEGREES, CONFIG.NEIGHBORHOOD_SIZE);
 regenerateCaches(CONFIG.OAKES_CLASSROOM);
+
+// Initialize persistent storage keys
+const STORAGE_KEYS = {
+  PLAYER_POSITION: "playerPosition",
+  CACHE_STORE: "cacheStore",
+  PLAYER_COINS: "playerCoins",
+  MOVEMENT_HISTORY: "movementHistory",
+};
+
+// Load game state from storage
+function loadGameState() {
+  const savedPosition = localStorage.getItem(STORAGE_KEYS.PLAYER_POSITION);
+  if (savedPosition) {
+    const [lat, lng] = JSON.parse(savedPosition);
+    playerMarker.setLatLng([lat, lng]);
+    GameState.map.setView([lat, lng], CONFIG.GAMEPLAY_ZOOM_LEVEL);
+  }
+  const savedCacheStore = localStorage.getItem(STORAGE_KEYS.CACHE_STORE);
+  if (savedCacheStore) {
+    GameState.cacheStore = JSON.parse(savedCacheStore);
+  }
+  const savedCoins = localStorage.getItem(STORAGE_KEYS.PLAYER_COINS);
+  if (savedCoins) {
+    GameState.playerCoins = parseInt(savedCoins, 10);
+    updateStatusPanel();
+  }
+  const savedPolyLine = localStorage.getItem(STORAGE_KEYS.MOVEMENT_HISTORY);
+  if (savedPolyLine) {
+    const polylineCoordinates = JSON.parse(savedPolyLine);
+    movementPolyline.setLatLngs(polylineCoordinates);
+  }
+}
+
+// Save game state to storage
+function saveGameState() {
+  const position = playerMarker.getLatLng();
+  localStorage.setItem(
+    STORAGE_KEYS.PLAYER_POSITION,
+    JSON.stringify([position.lat, position.lng]),
+  );
+  localStorage.setItem(
+    STORAGE_KEYS.CACHE_STORE,
+    JSON.stringify(GameState.cacheStore),
+  );
+  localStorage.setItem(
+    STORAGE_KEYS.PLAYER_COINS,
+    GameState.playerCoins.toString(),
+  );
+  localStorage.setItem(
+    STORAGE_KEYS.MOVEMENT_HISTORY,
+    JSON.stringify(movementPolyline.getLatLngs()),
+  );
+}
+
+// Polyline to track movement history
+const movementPolyline = leaflet
+  .polyline([], { color: "blue" })
+  .addTo(GameState.map);
+
+// Update movement history
+function updateMovementHistory() {
+  const position = playerMarker.getLatLng();
+  movementPolyline.addLatLng([position.lat, position.lng]);
+  saveGameState();
+}
+
+// Geolocation tracking
+function enableGeolocation() {
+  if (!navigator.geolocation) {
+    alert("Geolocation is not supported by your browser.");
+    return;
+  }
+  navigator.geolocation.watchPosition(
+    (position) => {
+      const lat = position.coords.latitude;
+      const lng = position.coords.longitude;
+      playerMarker.setLatLng([lat, lng]);
+      GameState.map.setView([lat, lng], CONFIG.GAMEPLAY_ZOOM_LEVEL);
+      updateMovementHistory();
+    },
+    (err) => alert(`Error fetching location: ${err.message}`),
+  );
+}
+
+// Reset game state
+function resetGameState() {
+  if (confirm("Are you sure you want to reset the game state?")) {
+    localStorage.clear();
+    location.reload();
+  }
+}
+
+// UI Buttons for geolocation and reset
+document
+  .querySelector("#geolocationButton")
+  ?.addEventListener("click", enableGeolocation);
+document
+  .querySelector("#resetButton")
+  ?.addEventListener("click", resetGameState);
+
+// Initialize game state and movement history
+loadGameState();
+updateMovementHistory();
